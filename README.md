@@ -1,6 +1,8 @@
 
 # Adoptium API
 
+foo
+
 **NOTICE:** [AdoptOpenJDK API v3](https://github.com/AdoptOpenJDK/openjdk-api-v3/blob/master/README.md) has been deprecated as part of the move to Eclipse Foundation and rebrand to Adoptium.
 
 ## Overview
