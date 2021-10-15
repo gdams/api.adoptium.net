@@ -1,0 +1,65 @@
+name: Stage Pull Request
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+env:
+  NAMESPACE: api-staging-${{ github.event.number }}
+
+jobs:
+  stage:
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'stage-pr') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create comment
+        uses: JJ/pr-greeting-action@releases/v1
+        with:
+            repo-token: ${{ secrets.GITHUB_TOKEN }}
+            greeting: Pull Request Staging in progress...
+
+      - uses: actions/checkout@v2
+
+      - name: Login to Azure Container Registry
+        uses: docker/login-action@v1
+        with:
+            registry: adoptopenjdkacr.azurecr.io
+            username: ${{ secrets.AZURE_CLIENT_ID }}
+            password: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Build image and push to Azure
+        uses: docker/build-push-action@v2
+        with:
+            file: ./deploy/Dockerfile
+            tags: adoptopenjdkacr.azurecr.io/adoptopenjdk-${{ env.NAMESPACE }}:latest
+            push: true
+
+      - name: Set the target Azure Kubernetes Service (AKS) cluster. 
+        uses: azure/aks-set-context@v1
+        with:
+            creds: '${{ secrets.AZURE_CREDENTIALS }}'
+            cluster-name: aksff92
+            resource-group: adopt-api
+
+      - name: Create namspace - ${{ env.NAMESPACE }}
+        run: kubectl create namespace ${{ env.NAMESPACE }} --dry-run -o json | kubectl apply -f -
+
+      - name: Create image pull secret for ACR
+        uses: azure/k8s-create-secret@v1
+        with:
+            container-registry-url: adoptopenjdkacr.azurecr.io
+            container-registry-username: ${{ secrets.AZURE_CLIENT_ID }}
+            container-registry-password: ${{ secrets.AZURE_CLIENT_SECRET }}
+            secret-name: ${{ env.NAMESPACE }}-secret
+            namespace: ${{ env.NAMESPACE }}
+            force: true
+
+      - name: Deploy app to AKS
+        uses: azure/k8s-deploy@v1
+        with:
+            manifests: |
+                manifests/deployment.yml
+                manifests/service.yml
+            images: adoptopenjdkacr.azurecr.io/adoptopenjdk-${{ env.NAMESPACE }}:latest
+            imagepullsecrets: ${{ env.NAMESPACE }}-secret
+            namespace: ${{ env.NAMESPACE }}
